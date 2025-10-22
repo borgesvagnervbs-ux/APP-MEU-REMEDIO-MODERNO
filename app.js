@@ -1,4 +1,4 @@
-// === CuidaBem - Lembrete de Medicamentos Humanizado (versão final com alarmes reais) ===
+// === CuidaBem - Lembrete de Medicamentos Humanizado (versão final corrigida) ===
 
 const views = document.querySelectorAll('.view');
 const overlay = document.getElementById('overlay');
@@ -168,7 +168,7 @@ document.getElementById('formPhotoNext').onclick = () => {
   showView('review');
   document.getElementById('reviewName').textContent = currentMed.name;
   document.getElementById('reviewQty').textContent = currentMed.quantity;
-  document.getElementById('reviewStart').textContent = new Date(currentMed.start).toLocaleString();
+  document.getElementById('reviewStart').textContent = document.getElementById('startTime').value || 'Não informado';
   document.getElementById('reviewInterval').textContent = currentMed.interval;
   document.getElementById('reviewRemind').textContent = currentMed.remind.join(', ') || 'Nenhum';
   document.getElementById('reviewPhotoBlock').innerHTML = currentMed.photo ? `<img src="${currentMed.photo}">` : '';
@@ -176,19 +176,36 @@ document.getElementById('formPhotoNext').onclick = () => {
 };
 document.getElementById('formPhotoBack').onclick = () => showView('form-remind');
 
-// === SALVAR E AGENDAR ===
+// === SALVAR E AGENDAR (corrigido) ===
 document.getElementById('saveBtn').onclick = () => {
-  meds.push(currentMed);
-  localStorage.setItem('meds', JSON.stringify(meds));
-  renderList();
-  scheduleAllMeds();
-  showView('list');
-  speak('Lembrete salvo com sucesso!');
+  try {
+    const startInput = document.getElementById('startTime').value;
+    const intervalInput = document.getElementById('intervalTime').value;
+
+    if (!currentMed.name || !currentMed.quantity || !startInput || !intervalInput) {
+      alert('Por favor, preencha todas as etapas antes de salvar.');
+      return;
+    }
+
+    currentMed.start = new Date(startInput).toISOString();
+    currentMed.interval = intervalInput;
+    if (!Array.isArray(currentMed.remind)) currentMed.remind = [];
+
+    meds.push(currentMed);
+    localStorage.setItem('meds', JSON.stringify(meds));
+
+    renderList();
+    scheduleAllMeds();
+
+    showView('list');
+    speak('Lembrete salvo com sucesso!');
+  } catch (err) {
+    console.error('Erro ao salvar lembrete:', err);
+    alert('Ocorreu um erro ao salvar o lembrete. Verifique os dados e tente novamente.');
+  }
 };
 
-document.getElementById('reviewBack').onclick = () => {
-  showView('form-photo');
-};
+document.getElementById('reviewBack').onclick = () => showView('form-photo');
 
 // === LISTA ===
 function renderList() {
@@ -234,7 +251,6 @@ function scheduleAllMeds() {
     const delay = start.getTime() - now.getTime();
     timers.push(setTimeout(() => triggerAlarm(m), delay));
 
-    // Lembretes antecipados
     (m.remind || []).forEach(mins => {
       const remindDelay = delay - mins * 60 * 1000;
       if (remindDelay > 0)
