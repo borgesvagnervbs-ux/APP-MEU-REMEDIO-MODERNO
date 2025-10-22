@@ -8,7 +8,6 @@
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#6fb8ff">
   <link rel="icon" href="icons/icon-192.png">
-
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -47,11 +46,12 @@
       <section class="view" data-view="consent" style="display:none">
         <div class="card centered">
           <h2>Antes de começar</h2>
-          <p class="muted">Leia ou ouça o termo. Diga “sim” ou toque em “Aceito”.</p>
+          <p class="muted">Leia ou ouça o termo. Você pode dizer “sim”, “aceito” ou “autorizo”.</p>
 
           <div id="consentText" class="consent-box"></div>
 
           <div class="btn-group">
+            <button id="voiceConsent" class="btn-voice">🎤</button>
             <button id="playConsent" class="btn-secondary">🔊 Ouvir</button>
             <button id="acceptConsent" class="btn-primary big">Aceito</button>
             <button id="consentBack" class="btn-secondary">Voltar</button>
