@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
   <title>CuidaBem — Lembretes de Medicação</title>
 
   <link rel="manifest" href="manifest.json">
@@ -18,7 +18,7 @@
         <img src="icons/icon-192.png" alt="logo" class="logo">
         <div>
           <h1>CuidaBem</h1>
-          <div class="subtitle">Seu lembrete de medicamentos, com carinho</div>
+          <p class="subtitle">Seu lembrete de medicamentos 💙</p>
         </div>
       </div>
     </header>
@@ -28,17 +28,17 @@
       <!-- WELCOME -->
       <section class="view" data-view="welcome">
         <div class="card centered">
-          <h2>Olá! Eu sou o CuidaBem 🌤️</h2>
-          <p class="muted">Como prefere que eu te chame? Pode digitar ou falar.</p>
+          <h2>Olá! 🌤️</h2>
+          <p class="muted">Como posso te chamar?</p>
 
-          <div class="row input-row">
-            <input id="username" type="text" placeholder="Ex: Vagner" aria-label="Nome do paciente" />
-            <button id="voiceUsername" class="voice-btn" title="Falar o nome">🎤</button>
+          <div class="input-group">
+            <input id="username" type="text" placeholder="Digite ou fale seu nome" />
+            <button id="voiceUsername" class="btn-voice">🎤</button>
           </div>
 
-          <div class="row actions-row">
-            <button id="welcomeNext" class="primary">Continuar</button>
-            <button id="clearAll" class="secondary">Limpar dados</button>
+          <div class="btn-group">
+            <button id="welcomeNext" class="btn-primary big">Continuar</button>
+            <button id="clearAll" class="btn-secondary">Limpar dados</button>
           </div>
         </div>
       </section>
@@ -46,33 +46,33 @@
       <!-- CONSENT -->
       <section class="view" data-view="consent" style="display:none">
         <div class="card centered">
-          <h2>Consentimento para uso das informações</h2>
-          <p class="muted">Leia ou ouça o termo. Para aceitar, toque em "Aceito" ou diga "sim", "aceito" ou "autorizo".</p>
+          <h2>Antes de começar</h2>
+          <p class="muted">Leia ou ouça o termo. Diga “sim” ou toque em “Aceito”.</p>
 
-          <div id="consentText" class="consent-box" tabindex="0"></div>
+          <div id="consentText" class="consent-box"></div>
 
-          <div class="row actions-row">
-            <button id="playConsent" class="secondary">🔊 Ouvir</button>
-            <button id="acceptConsent" class="primary">Aceito</button>
-            <button id="consentBack" class="secondary">Voltar</button>
+          <div class="btn-group">
+            <button id="playConsent" class="btn-secondary">🔊 Ouvir</button>
+            <button id="acceptConsent" class="btn-primary big">Aceito</button>
+            <button id="consentBack" class="btn-secondary">Voltar</button>
           </div>
         </div>
       </section>
 
-      <!-- FORM: medicine name -->
+      <!-- FORM: medicamento -->
       <section class="view" data-view="form-name" style="display:none">
         <div class="card centered">
-          <h2>Qual é o remédio?</h2>
-          <p class="muted">Diga ou digite o nome do medicamento.</p>
+          <h2>Qual é o medicamento?</h2>
+          <p class="muted">Diga ou digite o nome do remédio.</p>
 
-          <div class="row input-row">
-            <input id="name" type="text" placeholder="Ex: Amoxicilina" />
-            <button id="voiceName" class="voice-btn">🎤</button>
+          <div class="input-group">
+            <input id="name" type="text" placeholder="Ex: Paracetamol" />
+            <button id="voiceName" class="btn-voice">🎤</button>
           </div>
 
-          <div class="row actions-row">
-            <button id="formNameNext" class="primary">Próximo</button>
-            <button id="formNameBack" class="secondary">Cancelar</button>
+          <div class="btn-group">
+            <button id="formNameNext" class="btn-primary big">Próximo</button>
+            <button id="formNameBack" class="btn-secondary">Voltar</button>
           </div>
         </div>
       </section>
@@ -81,44 +81,42 @@
       <section class="view" data-view="form-qty" style="display:none">
         <div class="card centered">
           <h2>Qual a dose?</h2>
-          <p class="muted">Ex.: 1 cápsula, 500 mg, 5 ml</p>
+          <p class="muted">Ex: 1 cápsula, 500 mg, 5 ml...</p>
 
-          <div class="row input-row">
+          <div class="input-group">
             <input id="quantity" type="text" placeholder="Ex: 1 cápsula" />
-            <button id="voiceQuantity" class="voice-btn">🎤</button>
+            <button id="voiceQuantity" class="btn-voice">🎤</button>
           </div>
 
-          <div class="row actions-row">
-            <button id="formQtyNext" class="primary">Próximo</button>
-            <button id="formQtyBack" class="secondary">Voltar</button>
+          <div class="btn-group">
+            <button id="formQtyNext" class="btn-primary big">Próximo</button>
+            <button id="formQtyBack" class="btn-secondary">Voltar</button>
           </div>
         </div>
       </section>
 
-      <!-- FORM: start & interval -->
+      <!-- FORM: tempo -->
       <section class="view" data-view="form-time" style="display:none">
         <div class="card centered">
           <h2>Quando começar?</h2>
-          <p class="muted">Escolha a data/hora de início e o intervalo entre doses.</p>
 
           <label for="startTime">Início</label>
           <input id="startTime" type="datetime-local" />
 
-          <label for="intervalTime">Intervalo (hora:minutos) — use 00:00 para único</label>
+          <label for="intervalTime">Intervalo (horas:minutos)</label>
           <input id="intervalTime" type="time" value="00:30" />
 
-          <div class="row actions-row">
-            <button id="formTimeNext" class="primary">Próximo</button>
-            <button id="formTimeBack" class="secondary">Voltar</button>
+          <div class="btn-group">
+            <button id="formTimeNext" class="btn-primary big">Próximo</button>
+            <button id="formTimeBack" class="btn-secondary">Voltar</button>
           </div>
         </div>
       </section>
 
-      <!-- FORM: remind options -->
+      <!-- FORM: lembretes -->
       <section class="view" data-view="form-remind" style="display:none">
         <div class="card centered">
-          <h2>Notificações antecipadas</h2>
-          <p class="muted">Deseja avisos alguns minutos antes?</p>
+          <h2>Deseja lembretes antecipados?</h2>
 
           <div class="checkbox-row">
             <label><input type="checkbox" id="remind5"> 5 min antes</label>
@@ -126,27 +124,27 @@
             <label><input type="checkbox" id="remind1"> 1 min antes</label>
           </div>
 
-          <div class="row actions-row">
-            <button id="formRemindNext" class="primary">Próximo</button>
-            <button id="formRemindBack" class="secondary">Voltar</button>
+          <div class="btn-group">
+            <button id="formRemindNext" class="btn-primary big">Próximo</button>
+            <button id="formRemindBack" class="btn-secondary">Voltar</button>
           </div>
         </div>
       </section>
 
-      <!-- FORM: photo -->
+      <!-- FORM: foto -->
       <section class="view" data-view="form-photo" style="display:none">
         <div class="card centered">
-          <h2>Foto do remédio (opcional)</h2>
-          <p class="muted">Ajuda a identificar rapidamente. Pode tirar foto ou escolher da galeria.</p>
+          <h2>Adicionar foto (opcional)</h2>
+          <p class="muted">Ajuda a identificar o remédio</p>
 
-          <div class="row" style="align-items:flex-start">
-            <div class="image-preview" id="imgPreview"><span class="small">Sem foto</span></div>
+          <div class="image-box">
+            <div class="image-preview" id="imgPreview"><span>Sem foto</span></div>
             <input id="photo" type="file" accept="image/*" capture="environment" />
           </div>
 
-          <div class="row actions-row">
-            <button id="formPhotoNext" class="primary">Revisar e salvar</button>
-            <button id="formPhotoBack" class="secondary">Voltar</button>
+          <div class="btn-group">
+            <button id="formPhotoNext" class="btn-primary big">Revisar</button>
+            <button id="formPhotoBack" class="btn-secondary">Voltar</button>
           </div>
         </div>
       </section>
@@ -154,69 +152,55 @@
       <!-- REVIEW -->
       <section class="view" data-view="review" style="display:none">
         <div class="card centered">
-          <h2>Revisar lembrete</h2>
-          <div class="review-block">
-            <div><strong>Remédio:</strong> <span id="reviewName"></span></div>
-            <div><strong>Dose:</strong> <span id="reviewQty"></span></div>
-            <div><strong>Início:</strong> <span id="reviewStart"></span></div>
-            <div><strong>Intervalo:</strong> <span id="reviewInterval"></span></div>
-            <div><strong>Lembretes:</strong> <span id="reviewRemind"></span></div>
-            <div id="reviewPhotoBlock" style="margin-top:8px"></div>
+          <h2>Confirmar lembrete</h2>
+          <div class="review">
+            <p><strong>Remédio:</strong> <span id="reviewName"></span></p>
+            <p><strong>Dose:</strong> <span id="reviewQty"></span></p>
+            <p><strong>Início:</strong> <span id="reviewStart"></span></p>
+            <p><strong>Intervalo:</strong> <span id="reviewInterval"></span></p>
+            <p><strong>Lembretes:</strong> <span id="reviewRemind"></span></p>
+            <div id="reviewPhotoBlock" class="img-confirm"></div>
           </div>
 
-          <div class="row actions-row">
-            <button id="saveBtn" class="primary">Salvar lembrete</button>
-            <button id="reviewBack" class="secondary">Voltar</button>
+          <div class="btn-group">
+            <button id="saveBtn" class="btn-primary big">Salvar lembrete</button>
+            <button id="reviewBack" class="btn-secondary">Voltar</button>
           </div>
         </div>
       </section>
 
-      <!-- LIST -->
+      <!-- LISTA -->
       <section class="view" data-view="list" style="display:none">
-        <div class="card">
-          <div class="list-header">
-            <h2>Seus lembretes</h2>
-            <div class="muted">Cuide-se — eu te aviso com calma e carinho.</div>
-          </div>
-
+        <div class="card list-card">
+          <h2>Seus lembretes 💊</h2>
           <div id="medList" class="med-list"></div>
 
-          <div class="row actions-row" style="margin-top:12px">
-            <button id="testNow" class="secondary">Testar agora</button>
-            <button id="addNew" class="primary">Novo lembrete</button>
+          <div class="btn-group">
+            <button id="addNew" class="btn-primary big">Cadastrar outro</button>
+            <button id="testNow" class="btn-secondary">Testar agora</button>
           </div>
         </div>
       </section>
 
     </main>
-
-    <footer class="footer">Melhor experiência em Chrome Android • CuidaBem ©</footer>
   </div>
 
-  <!-- OVERLAY: alarm -->
   <div id="overlay" class="overlay" style="display:none">
-    <div class="overlay-card alarm-card">
-      <img id="overlayImg" src="icons/icon-512.png" alt="remédio" />
-      <div class="big" id="overlayText">Hora de tomar seu remédio</div>
-      <div class="overlay-actions">
-        <button id="takenBtn" class="btn-primary">✅ Tomei</button>
-        <div class="row small-gap">
-          <button id="postpone30" class="secondary">⏰ +30 min</button>
-          <button id="postpone60" class="secondary">⏰ +1h</button>
-        </div>
+    <div class="overlay-card">
+      <img id="overlayImg" src="icons/icon-512.png" alt="">
+      <div id="overlayText" class="big">Hora do remédio</div>
+      <div class="btn-group">
+        <button id="takenBtn" class="btn-primary big">✅ Tomei</button>
+        <button id="postpone30" class="btn-secondary">+30 min</button>
+        <button id="postpone60" class="btn-secondary">+1h</button>
       </div>
     </div>
   </div>
 
-  <!-- OVERLAY: reminder -->
-  <div id="reminderOverlay" class="overlay reminder-overlay" style="display:none">
-    <div class="overlay-card reminder-card">
-      <div class="reminder-icon">⏰</div>
-      <img id="reminderImg" src="icons/icon-512.png" alt="remédio" />
-      <div class="big reminder-text" id="reminderText">Lembrete antecipado</div>
-      <div class="overlay-actions">
-        <button id="reminderOkBtn" class="btn-primary">OK, entendi</button>
-      </div>
+  <div id="reminderOverlay" class="overlay" style="display:none">
+    <div class="overlay-card reminder">
+      <div class="big" id="reminderText">Lembrete antecipado</div>
+      <button id="reminderOkBtn" class="btn-primary big">Entendido</button>
     </div>
   </div>
 
