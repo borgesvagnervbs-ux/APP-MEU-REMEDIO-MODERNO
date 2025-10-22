@@ -186,6 +186,10 @@ document.getElementById('saveBtn').onclick = () => {
   speak('Lembrete salvo com sucesso!');
 };
 
+document.getElementById('reviewBack').onclick = () => {
+  showView('form-photo');
+};
+
 // === LISTA ===
 function renderList() {
   medList.innerHTML = meds.length ? '' : '<p>Nenhum lembrete cadastrado.</p>';
