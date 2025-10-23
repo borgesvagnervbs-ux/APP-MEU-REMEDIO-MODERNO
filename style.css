@@ -26,9 +26,7 @@ body {
   touch-action: pan-y;
 }
 
-/* ========================================
-   ONBOARDING - SLIDES
-======================================== */
+/* ONBOARDING - SLIDES */
 .onboarding {
   position: fixed;
   inset: 0;
@@ -92,7 +90,6 @@ body {
   color: var(--text-light);
 }
 
-/* Inputs */
 .input-group {
   display: flex;
   gap: 8px;
@@ -132,7 +129,6 @@ body {
   transform: scale(0.95);
 }
 
-/* Termos */
 .terms-box {
   background: var(--bg);
   border-radius: 12px;
@@ -178,7 +174,6 @@ body {
   color: white;
 }
 
-/* Permissões */
 .permission-list {
   margin: 24px 0;
 }
@@ -211,7 +206,6 @@ body {
   color: var(--text-light);
 }
 
-/* Ações dos slides */
 .slide-actions {
   display: flex;
   gap: 12px;
@@ -253,9 +247,7 @@ body {
   background: var(--bg);
 }
 
-/* ========================================
-   APP PRINCIPAL
-======================================== */
+/* APP PRINCIPAL */
 .main-app {
   min-height: 100vh;
   padding-bottom: 80px;
@@ -266,6 +258,7 @@ body {
   padding: 20px 20px 32px;
   color: white;
   box-shadow: var(--shadow);
+  position: relative;
 }
 
 .header-content {
@@ -309,7 +302,6 @@ body {
   backdrop-filter: blur(10px);
 }
 
-/* Lista de Medicamentos */
 .content-wrapper {
   padding: 20px;
 }
@@ -325,13 +317,17 @@ body {
   border-radius: 16px;
   padding: 16px;
   box-shadow: var(--shadow);
-  display: flex;
-  gap: 16px;
   transition: all 0.3s;
 }
 
 .med-card:active {
   transform: scale(0.98);
+}
+
+.med-card-header {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
 }
 
 .med-image {
@@ -379,7 +375,6 @@ body {
   padding: 4px 8px;
   border-radius: 6px;
   display: inline-block;
-  margin-bottom: 8px;
 }
 
 .med-history {
@@ -393,25 +388,19 @@ body {
   overflow-y: auto;
 }
 
-.med-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .btn-delete {
-  padding: 8px 12px;
+  width: 100%;
+  padding: 10px;
   border: none;
   background: var(--danger);
   color: white;
   border-radius: 8px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
-  white-space: nowrap;
+  margin-top: 12px;
 }
 
-/* Estado Vazio */
 .empty-state {
   text-align: center;
   padding: 60px 20px;
@@ -432,7 +421,6 @@ body {
   color: var(--text-light);
 }
 
-/* Botão Flutuante (FAB) */
 .fab {
   position: fixed;
   bottom: 24px;
@@ -458,7 +446,6 @@ body {
   font-weight: 300;
 }
 
-/* Panel de Configurações */
 .bottom-panel {
   position: fixed;
   bottom: 0;
@@ -522,9 +509,7 @@ body {
   color: var(--danger);
 }
 
-/* ========================================
-   WIZARD - ADICIONAR MEDICAMENTO
-======================================== */
+/* WIZARD */
 .wizard {
   position: fixed;
   inset: 0;
@@ -609,7 +594,6 @@ body {
   border-color: var(--primary);
 }
 
-/* Checkboxes */
 .checkbox-list {
   margin-bottom: 32px;
 }
@@ -659,7 +643,6 @@ body {
   font-weight: bold;
 }
 
-/* Foto */
 .photo-preview {
   width: 100%;
   height: 200px;
@@ -705,9 +688,7 @@ body {
   padding: 16px 0;
 }
 
-/* ========================================
-   OVERLAYS - ALARMES E LEMBRETES
-======================================== */
+/* OVERLAYS */
 .overlay-mobile {
   position: fixed;
   inset: 0;
@@ -837,33 +818,3 @@ body {
   box-shadow: 0 4px 16px rgba(245, 158, 11, 0.3);
 }
 
-/* ========================================
-   RESPONSIVIDADE
-======================================== */
-@media (max-width: 380px) {
-  .slide-content {
-    padding: 32px 20px;
-  }
-  
-  .wizard-content h2 {
-    font-size: 1.5rem;
-  }
-  
-  .btn-primary,
-  .btn-secondary {
-    font-size: 0.875rem;
-  }
-}
-
-@media (min-width: 768px) {
-  .main-app {
-    max-width: 768px;
-    margin: 0 auto;
-  }
-  
-  .wizard {
-    max-width: 500px;
-    left: 50%;
-    transform: translateX(-50%);
-  }
-}
