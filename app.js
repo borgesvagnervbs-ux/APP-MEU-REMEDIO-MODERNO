@@ -123,7 +123,6 @@ function nextSlide() {
     currentSlide++;
     slides[currentSlide].classList.add('active');
     
-    // Fala o conteúdo da tela
     speakSlideContent(currentSlide);
   }
 }
@@ -177,20 +176,6 @@ function speakTerms() {
   speak(termsText);
 }
 
-// Reconhecimento de voz para aceitar termos
-function setupVoiceConsent() {
-  if (!recognition) return;
-  
-  recognition.onresult = (event) => {
-    const transcript = event.results[0][0].transcript.toLowerCase();
-    console.log('Reconhecido:', transcript);
-    
-    if (transcript.includes('sim') || transcript.includes('aceito') || transcript.includes('autorizo')) {
-      acceptTerms();
-    }
-  };
-}
-
 function acceptTerms() {
   speak('Termos aceitos. Vamos configurar as permissões.');
   nextSlide();
@@ -199,13 +184,9 @@ function acceptTerms() {
 async function requestPermissions() {
   speak('Solicitando permissões.');
   
-  // Solicita permissão de notificação
   if ('Notification' in window && Notification.permission === 'default') {
     await Notification.requestPermission();
   }
-  
-  // Solicita permissão de microfone (apenas quando necessário)
-  // A câmera será solicitada quando o usuário tirar foto
   
   localStorage.setItem(STORAGE_KEY_ONBOARDING, 'true');
   
@@ -273,7 +254,6 @@ function cancelAddMed() {
 function nextWizard() {
   const slides = document.querySelectorAll('.wizard-slide');
   
-  // Validação
   if (currentWizardSlide === 0 && !document.getElementById('medName').value.trim()) {
     alert('Digite o nome do medicamento.');
     speak('Digite o nome do medicamento.');
@@ -418,13 +398,61 @@ function renderList() {
   medList.innerHTML = meds.map(med => {
     const { nextTime } = getNextAlarmTime(med);
     const nextDate = new Date(nextTime);
-    const nextStr = nextDate.toLocaleString('pt-BR');
+    const nextStr = nextDate.toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
     
-    const historyHTML = med.history.length > 0
-      ? `<div class="med-history"><strong>Histórico (${med.history.length}):</strong><br>${
-          med.history.slice(-3).map(t => `✅ ${new Date(t).toLocaleString('pt-BR')}`).join('<br>')
-        }</div>`
-      : '';
+    let historyHTML = '';
+    if (med.history && med.history.length > 0) {
+      const sortedHistory = [...med.history].sort((a, b) => b - a);
+      const recentHistory = sortedHistory.slice(0, 5);
+      
+      historyHTML = `
+        <div class="med-history">
+          <div class="med-history-header">
+            <div class="med-history-title">
+              📊 Histórico de Tomadas
+            </div>
+            <div class="med-history-count">${med.history.length}</div>
+          </div>
+          <div class="med-history-list">
+            ${recentHistory.map(timestamp => {
+              const date = new Date(timestamp);
+              const dateStr = date.toLocaleString('pt-BR', {
+                day: '2-digit',
+                month: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+              });
+              return `
+                <div class="med-history-item">
+                  <span class="med-history-icon">✅</span>
+                  <span class="med-history-time">${dateStr}</span>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    } else {
+      historyHTML = `
+        <div class="med-history">
+          <div class="med-history-header">
+            <div class="med-history-title">
+              📊 Histórico de Tomadas
+            </div>
+            <div class="med-history-count">0</div>
+          </div>
+          <div class="med-history-empty">
+            Nenhuma tomada registrada ainda
+          </div>
+        </div>
+      `;
+    }
 
     return `
       <div class="med-card">
@@ -510,7 +538,7 @@ function getNextAlarmTime(med) {
     return { nextTime: startTime, isFirst: true };
   }
   
-  if (med.history.length === 0) {
+  if (!med.history || med.history.length === 0) {
     if (startTime < now - (10 * 60 * 1000)) {
       const timeElapsed = now - startTime;
       const intervalsPassed = Math.floor(timeElapsed / intervalMs);
@@ -554,19 +582,21 @@ function checkAlarms() {
       }
     }
     
-    med.remind.forEach(min => {
-      const reminderTime = nextTime - (min * 60000);
-      const reminderKey = `${med.id}-${min}`;
-      const timeToReminder = reminderTime - now;
-      
-      if (timeToReminder <= 60000 && timeToReminder > -60000) {
-        if (lastTriggered[reminderKey] !== nextTime) {
-          startReminderLoop(med, min, nextTime, reminderKey);
-          lastTriggered[reminderKey] = nextTime;
-          return;
+    if (med.remind && med.remind.length > 0) {
+      med.remind.forEach(min => {
+        const reminderTime = nextTime - (min * 60000);
+        const reminderKey = `${med.id}-${min}`;
+        const timeToReminder = reminderTime - now;
+        
+        if (timeToReminder <= 60000 && timeToReminder > -60000) {
+          if (lastTriggered[reminderKey] !== nextTime) {
+            startReminderLoop(med, min, nextTime, reminderKey);
+            lastTriggered[reminderKey] = nextTime;
+            return;
+          }
         }
-      }
-    });
+      });
+    }
   });
 }
 
@@ -650,14 +680,37 @@ document.getElementById('takenBtn').addEventListener('click', async () => {
     const med = meds.find(m => m.id === currentActiveMed.id);
     if (med) {
       const now = Date.now();
+      
+      // Inicializa o array history se não existir
+      if (!med.history) {
+        med.history = [];
+      }
+      
+      // Adiciona o timestamp atual ao histórico
       med.history.push(now);
+      
+      // Salva a atualização no IndexedDB
       await saveMedIDB(med);
+      
+      // Para o alarme e limpa o estado
       stopAlarmLoop();
       stopReminderLoop();
+      
+      // Limpa o estado do alarme para permitir o próximo
       delete lastTriggered[med.id];
+      
+      // Atualiza a lista para mostrar o histórico atualizado
       renderList();
+      
+      const dateStr = new Date(now).toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      
       speak('Medicamento registrado como tomado.');
-      console.log(`✅ ${med.name} registrado como tomado às ${new Date(now).toLocaleString('pt-BR')}`);
+      console.log(`✅ ${med.name} registrado como tomado às ${dateStr}`);
     }
   }
 });
@@ -694,9 +747,10 @@ function sendNotification(title, body, data) {
     try {
       new Notification(title, {
         body: body,
-        icon: 'icons/icon-192.png',
-        badge: 'icons/icon-192.png',
+        icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">💊</text></svg>',
+        badge: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">💊</text></svg>',
         vibrate: [200, 100, 200],
+        requireInteraction: true,
         data: data || {}
       });
     } catch (e) {
