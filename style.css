@@ -2,6 +2,7 @@
   --primary: #0d9488;
   --danger: #ef4444;
   --warning: #f59e0b;
+  --success: #10b981;
   --bg: #f8fafc;
   --card: #ffffff;
   --text: #0f172a;
@@ -372,20 +373,84 @@ body {
   font-size: 0.75rem;
   color: var(--primary);
   background: rgba(13, 148, 136, 0.1);
-  padding: 4px 8px;
+  padding: 6px 10px;
   border-radius: 6px;
   display: inline-block;
+  font-weight: 600;
 }
 
 .med-history {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border: 1px solid #86efac;
+  border-radius: 12px;
+  padding: 12px;
+  margin-top: 12px;
+}
+
+.med-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #86efac;
+}
+
+.med-history-title {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--success);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.med-history-count {
   font-size: 0.75rem;
-  color: var(--text-light);
-  background: var(--bg);
-  padding: 8px;
-  border-radius: 8px;
-  margin-top: 8px;
-  max-height: 100px;
+  background: var(--success);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.med-history-list {
+  max-height: 120px;
   overflow-y: auto;
+}
+
+.med-history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: white;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  font-size: 0.8rem;
+  color: var(--text);
+  border: 1px solid #d1fae5;
+}
+
+.med-history-item:last-child {
+  margin-bottom: 0;
+}
+
+.med-history-icon {
+  font-size: 1rem;
+}
+
+.med-history-time {
+  flex: 1;
+  font-weight: 500;
+}
+
+.med-history-empty {
+  text-align: center;
+  padding: 12px;
+  color: var(--text-light);
+  font-size: 0.8rem;
+  font-style: italic;
 }
 
 .btn-delete {
@@ -399,6 +464,12 @@ body {
   font-weight: 600;
   cursor: pointer;
   margin-top: 12px;
+  transition: all 0.3s;
+}
+
+.btn-delete:active {
+  transform: scale(0.98);
+  background: #dc2626;
 }
 
 .empty-state {
@@ -817,4 +888,3 @@ body {
   background: var(--warning);
   box-shadow: 0 4px 16px rgba(245, 158, 11, 0.3);
 }
-
