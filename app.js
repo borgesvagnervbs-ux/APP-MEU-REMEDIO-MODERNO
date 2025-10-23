@@ -179,16 +179,35 @@ document.getElementById('formPhotoBack').onclick = () => showView('form-remind')
 // === SALVAR E AGENDAR (corrigido) ===
 document.getElementById('saveBtn').onclick = () => {
   try {
-    const startInput = document.getElementById('startTime').value;
-    const intervalInput = document.getElementById('intervalTime').value;
+    // pega valores visíveis no formulário, mas aceita fallback para currentMed
+    const startInput = document.getElementById('startTime') ? document.getElementById('startTime').value : '';
+    const intervalInput = document.getElementById('intervalTime') ? document.getElementById('intervalTime').value : '';
 
-    if (!currentMed.name || !currentMed.quantity || !startInput || !intervalInput) {
+    const startVal = startInput || currentMed.start;
+    const intervalVal = intervalInput || currentMed.interval;
+
+    if (!currentMed.name || !currentMed.quantity || !startVal || !intervalVal) {
       alert('Por favor, preencha todas as etapas antes de salvar.');
       return;
     }
 
-    currentMed.start = new Date(startInput).toISOString();
-    currentMed.interval = intervalInput;
+    // Normaliza start para ISO (se já for ISO, Date reconstrói corretamente)
+    const parsedStart = new Date(startVal);
+    if (isNaN(parsedStart.getTime())) {
+      alert('Horário inicial inválido. Verifique o campo Início.');
+      console.error('Start inválido ao salvar:', startVal);
+      return;
+    }
+    currentMed.start = parsedStart.toISOString();
+
+    // Valida intervalo no formato HH:MM
+    if (typeof intervalVal !== 'string' || !/^[0-9]{2}:[0-9]{2}$/.test(intervalVal)) {
+      alert('Intervalo inválido. Use o formato HH:MM.');
+      console.error('Intervalo inválido ao salvar:', intervalVal);
+      return;
+    }
+    currentMed.interval = intervalVal;
+
     if (!Array.isArray(currentMed.remind)) currentMed.remind = [];
 
     meds.push(currentMed);
@@ -204,8 +223,6 @@ document.getElementById('saveBtn').onclick = () => {
     alert('Ocorreu um erro ao salvar o lembrete. Verifique os dados e tente novamente.');
   }
 };
-
-document.getElementById('reviewBack').onclick = () => showView('form-photo');
 
 // === LISTA ===
 function renderList() {
@@ -237,24 +254,46 @@ document.getElementById('testNow').onclick = () => showAlarm({ name: "Teste", qu
 
 // === AGENDAMENTO ===
 function scheduleAllMeds() {
+
+  // segurança: limpa timers e protege contra dados inválidos
   timers.forEach(t => clearTimeout(t));
   timers = [];
-
   meds.forEach((m) => {
+    // valida start
     const start = new Date(m.start);
+    if (isNaN(start.getTime())) {
+      console.warn('Ignorando lembrete com start inválido:', m);
+      return;
+    }
+
+    // valida intervalo
+    if (!m.interval || typeof m.interval !== 'string' || m.interval.indexOf(':') === -1) {
+      console.warn('Ignorando lembrete com intervalo inválido:', m);
+      return;
+    }
     const intervalParts = m.interval.split(':');
-    const intervalMs = (+intervalParts[0] * 60 + +intervalParts[1]) * 60 * 1000;
+    const hours = parseInt(intervalParts[0], 10);
+    const minutes = parseInt(intervalParts[1], 10);
+    if (isNaN(hours) || isNaN(minutes)) {
+      console.warn('Ignorando lembrete com partes de intervalo inválidas:', m);
+      return;
+    }
+    const intervalMs = (hours * 60 + minutes) * 60 * 1000;
 
     const now = new Date();
+    // avança o start até que seja futuro
     while (start < now) start.setTime(start.getTime() + intervalMs);
 
     const delay = start.getTime() - now.getTime();
+    if (delay <= 0) {
+      console.warn('Delay calculado não é positivo para:', m);
+      return;
+    }
     timers.push(setTimeout(() => triggerAlarm(m), delay));
 
     (m.remind || []).forEach(mins => {
       const remindDelay = delay - mins * 60 * 1000;
-      if (remindDelay > 0)
-        timers.push(setTimeout(() => triggerReminder(m, mins), remindDelay));
+      if (remindDelay > 0) timers.push(setTimeout(() => triggerReminder(m, mins), remindDelay));
     });
   });
 }
