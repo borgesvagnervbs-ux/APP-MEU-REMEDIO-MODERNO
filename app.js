@@ -1,492 +1,718 @@
-// === CuidaBem - Lembrete de Medicamentos (corrigido: tratamento de quota + compressão progressiva) ===
+// ===== INDEXEDDB =====
+const DB_NAME = 'LembretesDB';
+const STORE_NAME = 'meds';
+let db = null;
 
-const views = document.querySelectorAll('.view');
-const overlay = document.getElementById('overlay');
-const reminderOverlay = document.getElementById('reminderOverlay');
-const overlayText = document.getElementById('overlayText');
-const overlayImg = document.getElementById('overlayImg');
-const medList = document.getElementById('medList');
-const consentText = document.getElementById('consentText');
+function openDB() {
+  return new Promise((resolve, reject) => {
+    if (db) return resolve(db);
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onerror = event => reject("Erro ao abrir o banco de dados.");
+    request.onsuccess = event => {
+      db = event.target.result;
+      resolve(db);
+    };
+    request.onupgradeneeded = event => {
+      db = event.target.result;
+      db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+    };
+  });
+}
 
-const synth = window.speechSynthesis;
-const recognition = ('webkitSpeechRecognition' in window) ? new webkitSpeechRecognition() : null;
-if (recognition) {
+async function saveMedIDB(med) {
+  const conn = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = conn.transaction([STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.put(med);
+    request.onsuccess = () => resolve();
+    request.onerror = event => reject(event.target.error);
+  });
+}
+
+async function loadMedsIDB() {
+  const conn = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = conn.transaction([STORE_NAME], 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.getAll();
+    request.onsuccess = event => resolve(event.target.result);
+    request.onerror = event => reject(event.target.error);
+  });
+}
+
+async function deleteMedIDB(id) {
+  const conn = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = conn.transaction([STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.delete(id);
+    request.onsuccess = () => resolve();
+    request.onerror = event => reject(event.target.error);
+  });
+}
+
+// ===== VARIÁVEIS GLOBAIS =====
+const STORAGE_KEY_USER = 'username';
+const STORAGE_KEY_ONBOARDING = 'onboarding_complete';
+let meds = [];
+let lastImage = null;
+let lastTriggered = {};
+let activeAlarmLoop = null;
+let activeReminderLoop = null;
+let currentActiveMed = null;
+let currentSlide = 0;
+let currentWizardSlide = 0;
+
+// ===== RECONHECIMENTO DE VOZ =====
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+
+if (SpeechRecognition) {
+  recognition = new SpeechRecognition();
   recognition.lang = 'pt-BR';
   recognition.continuous = false;
   recognition.interimResults = false;
 }
 
-let userName = localStorage.getItem('userName') || '';
-let meds = JSON.parse(localStorage.getItem('meds') || '[]');
-let consentAccepted = localStorage.getItem('consentAccepted') === 'true';
-let currentMed = {};
-let timers = [];
-
-function showView(name) {
-  views.forEach(v => v.style.display = (v.dataset.view === name ? 'block' : 'none'));
-}
-
-function speak(text) {
-  if (!synth) return;
-  synth.cancel();
-  const utter = new SpeechSynthesisUtterance(text);
-  utter.lang = 'pt-BR';
-  synth.speak(utter);
-}
-
-function listen(callback) {
-  if (!recognition) return;
-  recognition.start();
-  recognition.onresult = e => {
-    const text = e.results[0][0].transcript.trim();
-    callback(text);
-  };
-}
-
-function requestNotificationPermission() {
-  if (Notification.permission !== 'granted') {
-    Notification.requestPermission().then(permission => {
-      console.log('Permissão de notificação:', permission);
-    });
-  }
-}
-
-// util: detecta erro de quota localStorage
-function isQuotaExceeded(e) {
-  if (!e) return false;
-  return e instanceof DOMException && (
-    e.name === 'QuotaExceededError' ||
-    e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
-    e.code === 22 ||
-    e.code === 1014
-  );
-}
-
-// util: converte dataURL para imagem redimensionada (promise)
-function resizeDataUrl(dataUrl, maxSize = 600, quality = 0.7) {
-  return new Promise((resolve, reject) => {
-    try {
-      const img = new Image();
-      img.onload = () => {
-        try {
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          const scale = Math.min(1, Math.min(maxSize / img.width, maxSize / img.height));
-          canvas.width = Math.round(img.width * scale);
-          canvas.height = Math.round(img.height * scale);
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          const reduced = canvas.toDataURL('image/jpeg', quality);
-          resolve(reduced);
-        } catch (err) {
-          reject(err);
-        }
-      };
-      img.onerror = (err) => reject(err);
-      img.src = dataUrl;
-    } catch (err) {
-      reject(err);
-    }
-  });
-}
-
-// tenta salvar no localStorage com estratégias caso o espaço seja insuficiente
-async function safeSaveMeds(medsArray) {
-  // tentativa direta primeiro
-  try {
-    localStorage.setItem('meds', JSON.stringify(medsArray));
-    return { ok: true };
-  } catch (e) {
-    if (!isQuotaExceeded(e)) {
-      console.error('Erro desconhecido ao salvar:', e);
-      return { ok: false, error: e };
-    }
-    console.warn('QuotaExceeded: tentando estratégias de redução de tamanho...');
+function voiceInput(inputId) {
+  if (!recognition) {
+    alert('Seu navegador não suporta reconhecimento de voz. Use Chrome ou Edge.');
+    return;
   }
 
-  // Estratégia 1: se currentMed tem foto, tente recomprimir ainda mais essa foto
-  try {
-    // encontra índice do currentMed (último adicionado ou baseado em nome/dose/start)
-    const idx = medsArray.length - 1;
-    if (idx >= 0 && medsArray[idx] && medsArray[idx].photo) {
-      let photo = medsArray[idx].photo;
-      // tentativa progressiva: 600@0.7 -> 400@0.55 -> 300@0.45
-      const attempts = [
-        { size: 400, q: 0.55 },
-        { size: 300, q: 0.45 },
-      ];
-      for (const a of attempts) {
-        try {
-          const reduced = await resizeDataUrl(photo, a.size, a.q);
-          medsArray[idx].photo = reduced;
-          try {
-            localStorage.setItem('meds', JSON.stringify(medsArray));
-            return { ok: true, strategy: 'recompressed-current' };
-          } catch (err2) {
-            if (!isQuotaExceeded(err2)) throw err2;
-            // continua para próxima tentativa
-            photo = reduced;
-          }
-        } catch (errR) {
-          console.warn('Falha ao recomprimir foto:', errR);
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('Erro na estratégia de recompressão:', err);
-  }
-
-  // Estratégia 2: Remover fotos dos itens antigos (conservador) — preserva foto do atual, se possível
-  try {
-    // cria cópia profunda para manipular
-    const clone = JSON.parse(JSON.stringify(medsArray));
-    // primeiro, remove fotos de itens antigos (do início para o fim) mas mantém o último (current)
-    for (let i = 0; i < clone.length - 1; i++) {
-      if (clone[i].photo) {
-        delete clone[i].photo;
-        try {
-          localStorage.setItem('meds', JSON.stringify(clone));
-          return { ok: true, strategy: 'removed-old-photos' };
-        } catch (err) {
-          if (!isQuotaExceeded(err)) throw err;
-          // continua removendo mais fotos
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('Erro ao remover fotos antigas:', err);
-  }
-
-  // Estratégia 3: Remover todas as fotos (inclusive current) — último recurso
-  try {
-    const clone2 = JSON.parse(JSON.stringify(medsArray));
-    for (let i = 0; i < clone2.length; i++) {
-      if (clone2[i].photo) delete clone2[i].photo;
-    }
-    try {
-      localStorage.setItem('meds', JSON.stringify(clone2));
-      return { ok: true, strategy: 'removed-all-photos' };
-    } catch (err) {
-      if (!isQuotaExceeded(err)) throw err;
-      console.warn('Ainda sem espaço após remover fotos.');
-    }
-  } catch (err) {
-    console.warn('Erro na última estratégia:', err);
-  }
-
-  // Tudo falhou
-  return { ok: false, error: new Error('QuotaExceeded after all strategies') };
-}
-
-// === INICIALIZAÇÃO ===
-window.addEventListener('load', () => {
-  requestNotificationPermission();
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js');
+  const inputElement = document.getElementById(inputId);
   
-  if (userName && consentAccepted) {
-    renderList();
-    showView('list');
-    scheduleAllMeds();
-  } else if (!userName) {
-    showView('welcome');
-    speak("Olá! Seja bem-vindo ao CuidaBem. Como posso te chamar?");
-  } else {
-    showView('consent');
-    speak("Antes de continuar, preciso que você leia ou ouça o termo de consentimento.");
-  }
-});
+  recognition.onstart = () => {
+    console.log('🎤 Reconhecimento de voz iniciado...');
+  };
 
-// === BOAS-VINDAS ===
-document.getElementById('voiceUsername').onclick = () => listen(name => {
-  document.getElementById('username').value = name;
-});
-document.getElementById('welcomeNext').onclick = () => {
-  const val = document.getElementById('username').value.trim();
-  if (!val) return alert('Por favor, digite seu nome');
-  userName = val;
-  localStorage.setItem('userName', val);
-  showView('consent');
-  speak(`Prazer em te conhecer, ${val}. Antes de começar, preciso do seu consentimento.`);
-};
-document.getElementById('clearAll').onclick = () => {
-  if (confirm('Deseja limpar todos os dados?')) {
-    localStorage.clear();
-    location.reload();
-  }
-};
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    inputElement.value = transcript;
+    console.log('✅ Reconhecido:', transcript);
+  };
 
-// === CONSENTIMENTO ===
-const consentTextContent = `
-Este aplicativo CuidaBem ajuda você a lembrar de seus medicamentos.
-Suas informações são armazenadas apenas no seu dispositivo e não são compartilhadas.
-Ao aceitar, você autoriza o uso local dos dados e das notificações.
-`;
-consentText.innerText = consentTextContent;
-document.getElementById('playConsent').onclick = () => speak(consentTextContent);
-document.getElementById('acceptConsent').onclick = () => {
-  consentAccepted = true;
-  localStorage.setItem('consentAccepted', 'true');
-  startForm();
-};
-document.getElementById('consentBack').onclick = () => showView('welcome');
+  recognition.onerror = (event) => {
+    console.error('❌ Erro no reconhecimento de voz:', event.error);
+    alert('Erro ao reconhecer a voz. Tente novamente.');
+  };
 
-// === FORMULÁRIO ===
-function startForm() {
-  currentMed = {};
-  showView('form-name');
-  speak(`${userName}, qual é o nome do medicamento?`);
+  recognition.onend = () => {
+    console.log('🎤 Reconhecimento de voz finalizado.');
+  };
+
+  recognition.start();
 }
 
-document.getElementById('voiceName').onclick = () => listen(text => document.getElementById('name').value = text);
-document.getElementById('formNameNext').onclick = () => {
-  const name = document.getElementById('name').value.trim();
-  if (!name) return alert('Digite o nome do medicamento');
-  currentMed.name = name;
-  showView('form-qty');
-  speak('Qual a dose do medicamento?');
-};
-document.getElementById('formNameBack').onclick = () => showView('consent');
+// ===== SPEECH SYNTHESIS =====
+function speak(text) {
+  if ('speechSynthesis' in window) {
+    speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'pt-BR';
+    speechSynthesis.speak(utterance);
+  }
+}
 
-document.getElementById('voiceQuantity').onclick = () => listen(text => document.getElementById('quantity').value = text);
-document.getElementById('formQtyNext').onclick = () => {
-  const qty = document.getElementById('quantity').value.trim();
-  if (!qty) return alert('Digite a dose');
-  currentMed.quantity = qty;
-  showView('form-time');
-  speak('Quando você vai começar a tomar?');
-};
-document.getElementById('formQtyBack').onclick = () => showView('form-name');
+// ===== ONBOARDING =====
+function nextSlide() {
+  const slides = document.querySelectorAll('.onboarding .slide');
+  if (currentSlide < slides.length - 1) {
+    slides[currentSlide].classList.remove('active');
+    currentSlide++;
+    slides[currentSlide].classList.add('active');
+    
+    // Fala o conteúdo da tela
+    speakSlideContent(currentSlide);
+  }
+}
 
-document.getElementById('formTimeNext').onclick = () => {
-  const start = document.getElementById('startTime').value;
-  const interval = document.getElementById('intervalTime').value;
-  if (!start) return alert('Informe o horário inicial');
-  currentMed.start = start;
-  currentMed.interval = interval;
-  showView('form-remind');
-  speak('Deseja receber lembretes antecipados?');
-};
-document.getElementById('formTimeBack').onclick = () => showView('form-qty');
+function prevSlide() {
+  const slides = document.querySelectorAll('.onboarding .slide');
+  if (currentSlide > 0) {
+    slides[currentSlide].classList.remove('active');
+    currentSlide--;
+    slides[currentSlide].classList.add('active');
+    
+    speakSlideContent(currentSlide);
+  }
+}
 
-document.getElementById('formRemindNext').onclick = () => {
-  currentMed.remind = [];
-  if (document.getElementById('remind5').checked) currentMed.remind.push(5);
-  if (document.getElementById('remind3').checked) currentMed.remind.push(3);
-  if (document.getElementById('remind1').checked) currentMed.remind.push(1);
-  showView('form-photo');
-  speak('Deseja adicionar uma foto do medicamento?');
-};
-document.getElementById('formRemindBack').onclick = () => showView('form-time');
+function speakSlideContent(slideIndex) {
+  const messages = [
+    'Bem-vindo ao Lembrete de Medicamentos. Vamos configurar seus lembretes.',
+    'Como você quer ser chamado? Digite seu nome ou use o botão de voz.',
+    'Leia os termos de consentimento. Você pode ouvir clicando no botão ou aceitar clicando em aceito.',
+    'Precisamos de algumas permissões para o aplicativo funcionar corretamente.'
+  ];
+  
+  if (messages[slideIndex]) {
+    speak(messages[slideIndex]);
+  }
+}
 
-// === FOTO (com compressão imediata e fallback) ===
-const photoInput = document.getElementById('photo');
-const imgPreview = document.getElementById('imgPreview');
-photoInput.onchange = async e => {
-  const file = e.target.files[0];
-  if (!file) return;
-  // lê a imagem como dataURL
-  const reader = new FileReader();
-  reader.onload = async (evt) => {
-    try {
-      // compressão inicial para 600px@0.7
-      const reduced = await resizeDataUrl(evt.target.result, 600, 0.7);
-      imgPreview.innerHTML = `<img src="${reduced}">`;
-      currentMed.photo = reduced;
-    } catch (err) {
-      console.warn('Falha na compressão inicial, usando data original:', err);
-      // fallback: usa data original (pior caso)
-      imgPreview.innerHTML = `<img src="${evt.target.result}">`;
-      currentMed.photo = evt.target.result;
+function saveUsername() {
+  const username = document.getElementById('usernameSlide').value.trim();
+  if (!username) {
+    alert('Por favor, digite seu nome.');
+    speak('Por favor, digite seu nome.');
+    return;
+  }
+  
+  localStorage.setItem(STORAGE_KEY_USER, username);
+  nextSlide();
+}
+
+function speakTerms() {
+  const termsText = `Termo de Uso e Privacidade. 
+    Este aplicativo armazena informações sobre seus medicamentos localmente no seu dispositivo. 
+    Ao usar este app, você concorda em: 
+    Permitir notificações e alertas sonoros, 
+    Armazenar dados de medicamentos no dispositivo, 
+    Permitir acesso ao microfone para comandos de voz, 
+    Permitir acesso à câmera para fotos dos medicamentos. 
+    Importante: Este app é apenas um lembrete. Consulte sempre seu médico sobre medicações.`;
+  
+  speak(termsText);
+}
+
+// Reconhecimento de voz para aceitar termos
+function setupVoiceConsent() {
+  if (!recognition) return;
+  
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript.toLowerCase();
+    console.log('Reconhecido:', transcript);
+    
+    if (transcript.includes('sim') || transcript.includes('aceito') || transcript.includes('autorizo')) {
+      acceptTerms();
     }
   };
-  reader.readAsDataURL(file);
-};
+}
 
-document.getElementById('formPhotoNext').onclick = () => {
-  showView('review');
-  document.getElementById('reviewName').textContent = currentMed.name;
-  document.getElementById('reviewQty').textContent = currentMed.quantity;
-  document.getElementById('reviewStart').textContent = document.getElementById('startTime').value || 'Não informado';
-  document.getElementById('reviewInterval').textContent = currentMed.interval;
-  document.getElementById('reviewRemind').textContent = currentMed.remind.join(', ') || 'Nenhum';
-  document.getElementById('reviewPhotoBlock').innerHTML = currentMed.photo ? `<img src="${currentMed.photo}">` : '';
-  speak('Revise suas informações e clique em salvar lembrete.');
-};
-document.getElementById('formPhotoBack').onclick = () => showView('form-remind');
+function acceptTerms() {
+  speak('Termos aceitos. Vamos configurar as permissões.');
+  nextSlide();
+}
 
-// === SALVAR E AGENDAR (robusto) ===
-document.getElementById('saveBtn').onclick = async () => {
+async function requestPermissions() {
+  speak('Solicitando permissões.');
+  
+  // Solicita permissão de notificação
+  if ('Notification' in window && Notification.permission === 'default') {
+    await Notification.requestPermission();
+  }
+  
+  // Solicita permissão de microfone (apenas quando necessário)
+  // A câmera será solicitada quando o usuário tirar foto
+  
+  localStorage.setItem(STORAGE_KEY_ONBOARDING, 'true');
+  
+  speak('Configuração concluída. Bem-vindo ao seu aplicativo de lembretes.');
+  
+  document.getElementById('onboarding').style.display = 'none';
+  document.getElementById('mainApp').style.display = 'block';
+  
+  loadMainApp();
+}
+
+// ===== INICIALIZAÇÃO =====
+window.addEventListener('DOMContentLoaded', async () => {
+  const onboardingComplete = localStorage.getItem(STORAGE_KEY_ONBOARDING);
+  
+  if (onboardingComplete) {
+    document.getElementById('onboarding').style.display = 'none';
+    document.getElementById('mainApp').style.display = 'block';
+    loadMainApp();
+  } else {
+    speakSlideContent(0);
+  }
+  
   try {
-    const startInput = document.getElementById('startTime').value;
-    const intervalInput = document.getElementById('intervalTime').value;
-
-    const startVal = startInput || currentMed.start;
-    const intervalVal = intervalInput || currentMed.interval;
-
-    if (!currentMed.name || !currentMed.quantity || !startVal || !intervalVal) {
-      alert('Por favor, preencha todas as etapas antes de salvar.');
-      return;
-    }
-
-    const parsedStart = new Date(startVal);
-    if (isNaN(parsedStart.getTime())) {
-      alert('Horário inicial inválido. Verifique o campo Início.');
-      console.error('Start inválido ao salvar:', startVal);
-      return;
-    }
-    currentMed.start = parsedStart.toISOString();
-
-    if (typeof intervalVal !== 'string' || !/^[0-9]{2}:[0-9]{2}$/.test(intervalVal)) {
-      alert('Intervalo inválido. Use o formato HH:MM.');
-      console.error('Intervalo inválido ao salvar:', intervalVal);
-      return;
-    }
-    currentMed.interval = intervalVal;
-
-    if (!Array.isArray(currentMed.remind)) currentMed.remind = [];
-
-    // prepara array para salvar (faz uma cópia para não corromper currentMed se precisarmos manipular)
-    const toSave = JSON.parse(JSON.stringify(meds));
-    toSave.push(currentMed);
-
-    // tenta salvar com estratégias de fallback
-    const result = await safeSaveMeds(toSave);
-    if (!result.ok) {
-      console.error('Falha ao salvar após estratégias:', result.error);
-      alert('Não foi possível salvar. Espaço de armazenamento insuficiente no dispositivo. Considere remover lembretes antigos ou fotos.');
-      return;
-    }
-
-    // atualiza estado local com a versão que foi realmente gravada (busca do localStorage para garantir consistência)
-    try {
-      meds = JSON.parse(localStorage.getItem('meds') || '[]');
-    } catch (e) {
-      // se parsing falhar, fallback para toSave sem fotos (proteção)
-      meds = toSave.map(m => { const copy = Object.assign({}, m); delete copy.photo; return copy; });
-      localStorage.setItem('meds', JSON.stringify(meds));
-    }
-
+    meds = await loadMedsIDB();
     renderList();
-    scheduleAllMeds();
-    showView('list');
-    speak('Lembrete salvo com sucesso! (se houver fotos grandes, elas podem ter sido reduzidas ou removidas para economizar espaço)');
+    console.log(`✅ ${meds.length} lembretes carregados do IndexedDB.`);
   } catch (err) {
-    console.error('Erro ao salvar lembrete:', err);
-    alert('Ocorreu um erro ao salvar o lembrete. Verifique os dados e tente novamente.');
+    console.error('Erro ao carregar lembretes do IDB:', err);
   }
-};
+  
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().then(persisted => {
+      if (persisted) console.log("Armazenamento persistente concedido.");
+    });
+  }
+});
 
-document.getElementById('reviewBack').onclick = () => showView('form-photo');
-
-// === LISTA ===
-function renderList() {
-  medList.innerHTML = meds.length ? '' : '<p>Nenhum lembrete cadastrado.</p>';
-  meds.forEach((m, i) => {
-    const div = document.createElement('div');
-    div.className = 'med-item';
-    div.innerHTML = `
-      ${m.photo ? `<img src="${m.photo}">` : '<img src="icons/icon-192.png">'}
-      <div class="med-meta">
-        <strong>${m.name}</strong>
-        <div class="small">${m.quantity}</div>
-        <div class="small">${new Date(m.start).toLocaleString()}</div>
-      </div>
-      <button class="btn-secondary" onclick="deleteMed(${i})">🗑️</button>
-    `;
-    medList.appendChild(div);
-  });
+function loadMainApp() {
+  const username = localStorage.getItem(STORAGE_KEY_USER) || 'Você';
+  document.getElementById('userGreeting').textContent = `Olá, ${username}!`;
+  speak(`Olá, ${username}! Bem-vindo de volta.`);
 }
-window.deleteMed = (i) => {
-  if (confirm('Excluir lembrete?')) {
-    meds.splice(i, 1);
-    try {
-      localStorage.setItem('meds', JSON.stringify(meds));
-    } catch (e) {
-      console.error('Erro ao atualizar localStorage ao deletar:', e);
-      // tenta remover fotos e tentar novamente
-      const clone = meds.map(m => { const c = Object.assign({}, m); delete c.photo; return c; });
-      try { localStorage.setItem('meds', JSON.stringify(clone)); } catch (err) { console.error(err); }
-    }
+
+// ===== WIZARD ADICIONAR MEDICAMENTO =====
+function startAddMed() {
+  document.getElementById('addMedWizard').style.display = 'block';
+  currentWizardSlide = 0;
+  updateWizardProgress();
+  
+  const now = new Date();
+  now.setMinutes(now.getMinutes() + 1);
+  const pad = n => n.toString().padStart(2, '0');
+  document.getElementById('medStartTime').value = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  document.getElementById('medInterval').value = '00:30';
+  
+  speak('Vamos adicionar um novo medicamento. Qual o nome do medicamento?');
+}
+
+function cancelAddMed() {
+  document.getElementById('addMedWizard').style.display = 'none';
+  clearWizardFields();
+}
+
+function nextWizard() {
+  const slides = document.querySelectorAll('.wizard-slide');
+  
+  // Validação
+  if (currentWizardSlide === 0 && !document.getElementById('medName').value.trim()) {
+    alert('Digite o nome do medicamento.');
+    speak('Digite o nome do medicamento.');
+    return;
+  }
+  if (currentWizardSlide === 1 && !document.getElementById('medQuantity').value.trim()) {
+    alert('Digite a quantidade ou dose.');
+    speak('Digite a quantidade ou dose.');
+    return;
+  }
+  
+  if (currentWizardSlide < slides.length - 1) {
+    slides[currentWizardSlide].classList.remove('active');
+    currentWizardSlide++;
+    slides[currentWizardSlide].classList.add('active');
+    updateWizardProgress();
+    speakWizardContent(currentWizardSlide);
+  }
+}
+
+function prevWizard() {
+  const slides = document.querySelectorAll('.wizard-slide');
+  if (currentWizardSlide > 0) {
+    slides[currentWizardSlide].classList.remove('active');
+    currentWizardSlide--;
+    slides[currentWizardSlide].classList.add('active');
+    updateWizardProgress();
+    speakWizardContent(currentWizardSlide);
+  }
+}
+
+function updateWizardProgress() {
+  const progress = ((currentWizardSlide + 1) / 6) * 100;
+  document.getElementById('progressFill').style.width = progress + '%';
+  document.getElementById('progressText').textContent = `${currentWizardSlide + 1} de 6`;
+}
+
+function speakWizardContent(slideIndex) {
+  const messages = [
+    'Qual o nome do medicamento?',
+    'Qual a dose ou quantidade?',
+    'Quando você deve começar a tomar?',
+    'De quanto em quanto tempo você deve tomar?',
+    'Deseja receber lembretes antecipados?',
+    'Você pode tirar uma foto do medicamento para facilitar a identificação.'
+  ];
+  
+  if (messages[slideIndex]) {
+    speak(messages[slideIndex]);
+  }
+}
+
+function previewPhoto() {
+  const file = document.getElementById('medPhoto').files[0];
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      lastImage = e.target.result;
+      document.getElementById('photoPreview').innerHTML = `<img src="${lastImage}" alt="Prévia" />`;
+    };
+    reader.readAsDataURL(file);
+  }
+}
+
+async function saveMedication() {
+  const name = document.getElementById('medName').value.trim();
+  const qty = document.getElementById('medQuantity').value.trim();
+  const startTime = document.getElementById('medStartTime').value;
+  const intervalTime = document.getElementById('medInterval').value;
+  const remind = [];
+  
+  if (document.getElementById('remind5Wizard').checked) remind.push(5);
+  if (document.getElementById('remind3Wizard').checked) remind.push(3);
+  if (document.getElementById('remind1Wizard').checked) remind.push(1);
+
+  if (!name || !qty || !startTime || !intervalTime) {
+    alert('Preencha todos os campos obrigatórios.');
+    return;
+  }
+
+  try {
+    const [hours, minutes] = intervalTime.split(':').map(Number);
+    const intervalMinutes = hours * 60 + minutes;
+    const id = Math.random().toString(36).substring(2, 9) + Date.now();
+
+    const med = {
+      id,
+      name,
+      qty,
+      startTime: new Date(startTime).getTime(),
+      intervalMinutes,
+      img: lastImage,
+      remind,
+      history: []
+    };
+
+    await saveMedIDB(med);
+    meds.push(med);
     renderList();
+    
+    speak(`Lembrete de ${name} salvo com sucesso!`);
+    alert('💾 Lembrete salvo com sucesso!');
+    
+    document.getElementById('addMedWizard').style.display = 'none';
+    clearWizardFields();
+  } catch (err) {
+    console.error('Erro ao salvar:', err);
+    alert('Erro ao salvar o lembrete.');
   }
-};
-document.getElementById('addNew').onclick = () => startForm();
-document.getElementById('testNow').onclick = () => showAlarm({ name: "Teste", quantity: "1 cápsula" });
+}
 
-// === AGENDAMENTO ===
-function scheduleAllMeds() {
-  timers.forEach(t => clearTimeout(t));
-  timers = [];
+function clearWizardFields() {
+  document.getElementById('medName').value = '';
+  document.getElementById('medQuantity').value = '';
+  document.getElementById('medPhoto').value = '';
+  document.getElementById('photoPreview').innerHTML = '<span class="photo-placeholder">📷</span>';
+  document.getElementById('remind5Wizard').checked = false;
+  document.getElementById('remind3Wizard').checked = false;
+  document.getElementById('remind1Wizard').checked = false;
+  lastImage = null;
+  
+  const slides = document.querySelectorAll('.wizard-slide');
+  slides.forEach((slide, index) => {
+    slide.classList.toggle('active', index === 0);
+  });
+  currentWizardSlide = 0;
+  updateWizardProgress();
+}
 
-  meds.forEach((m) => {
-    const start = new Date(m.start);
-    if (isNaN(start.getTime())) {
-      console.warn('Ignorando lembrete com start inválido:', m);
-      return;
+// ===== RENDERIZAR LISTA =====
+function renderList() {
+  const medList = document.getElementById('medList');
+  const emptyState = document.getElementById('emptyState');
+  
+  if (meds.length === 0) {
+    medList.innerHTML = '';
+    emptyState.style.display = 'block';
+    return;
+  }
+
+  emptyState.style.display = 'none';
+  medList.innerHTML = meds.map(med => {
+    const { nextTime } = getNextAlarmTime(med);
+    const nextDate = new Date(nextTime);
+    const nextStr = nextDate.toLocaleString('pt-BR');
+    
+    const historyHTML = med.history.length > 0
+      ? `<div class="med-history"><strong>Histórico (${med.history.length}):</strong><br>${
+          med.history.slice(-3).map(t => `✅ ${new Date(t).toLocaleString('pt-BR')}`).join('<br>')
+        }</div>`
+      : '';
+
+    return `
+      <div class="med-card">
+        <div class="med-card-header">
+          <div class="med-image">
+            ${med.img ? `<img src="${med.img}" alt="${med.name}" />` : '💊'}
+          </div>
+          <div class="med-info">
+            <div class="med-name">${med.name}</div>
+            <div class="med-dose">${med.qty}</div>
+            <div class="med-next">📅 Próximo: ${nextStr}</div>
+          </div>
+        </div>
+        ${historyHTML}
+        <button class="btn-delete" onclick="deleteMed('${med.id}')">🗑️ Excluir</button>
+      </div>
+    `;
+  }).join('');
+}
+
+async function deleteMed(id) {
+  if (confirm('Excluir este lembrete?')) {
+    await deleteMedIDB(id);
+    meds = meds.filter(m => m.id !== id);
+    delete lastTriggered[id];
+    renderList();
+    speak('Lembrete excluído.');
+    alert('🗑️ Lembrete excluído com sucesso!');
+  }
+}
+
+// ===== CONFIGURAÇÕES =====
+function showSettings() {
+  document.getElementById('settingsPanel').classList.add('active');
+}
+
+function closeSettings() {
+  document.getElementById('settingsPanel').classList.remove('active');
+}
+
+function testAlarm() {
+  if (meds.length) {
+    const med = meds[0];
+    startAlarmLoop(med, Date.now());
+    closeSettings();
+  } else {
+    alert('Cadastre um lembrete para testar o alarme.');
+    speak('Cadastre um lembrete para testar o alarme.');
+  }
+}
+
+async function clearAllData() {
+  if (confirm('ATENÇÃO: Isso excluirá TODOS os seus lembretes e dados. Tem certeza?')) {
+    try {
+      const conn = await openDB();
+      const transaction = conn.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      store.clear();
+
+      meds = [];
+      lastTriggered = {};
+      stopAlarmLoop();
+      stopReminderLoop();
+      renderList();
+
+      alert('🔥 Todos os lembretes foram excluídos!');
+      speak('Todos os lembretes foram excluídos.');
+      closeSettings();
+    } catch (e) {
+      console.error('Erro ao limpar o IDB:', e);
+      alert('Erro ao limpar os lembretes.');
     }
+  }
+}
 
-    if (!m.interval || typeof m.interval !== 'string' || m.interval.indexOf(':') === -1) {
-      console.warn('Ignorando lembrete com intervalo inválido:', m);
-      return;
+// ===== LÓGICA DE ALARME =====
+function getNextAlarmTime(med) {
+  const now = Date.now();
+  const startTime = med.startTime;
+  const intervalMs = med.intervalMinutes * 60 * 1000;
+  
+  if (intervalMs === 0 || med.intervalMinutes === 0) {
+    return { nextTime: startTime, isFirst: true };
+  }
+  
+  if (med.history.length === 0) {
+    if (startTime < now - (10 * 60 * 1000)) {
+      const timeElapsed = now - startTime;
+      const intervalsPassed = Math.floor(timeElapsed / intervalMs);
+      const nextTime = startTime + (intervalsPassed + 1) * intervalMs;
+      return { nextTime, isFirst: false };
+    } else {
+      return { nextTime: startTime, isFirst: true };
     }
-    const intervalParts = m.interval.split(':');
-    const hours = parseInt(intervalParts[0], 10);
-    const minutes = parseInt(intervalParts[1], 10);
-    if (isNaN(hours) || isNaN(minutes)) {
-      console.warn('Ignorando lembrete com partes de intervalo inválidas:', m);
-      return;
+  }
+  
+  const lastTakenTime = med.history[med.history.length - 1];
+  const nextTime = lastTakenTime + intervalMs;
+  
+  if (nextTime < now - (10 * 60 * 1000)) {
+    const timeElapsed = now - lastTakenTime;
+    const intervalsPassed = Math.floor(timeElapsed / intervalMs);
+    return { nextTime: lastTakenTime + (intervalsPassed + 1) * intervalMs, isFirst: false };
+  }
+
+  return { nextTime, isFirst: false };
+}
+
+function checkAlarms() {
+  const now = Date.now();
+  
+  if (activeAlarmLoop !== null || activeReminderLoop !== null) {
+    return;
+  }
+  
+  meds.forEach(med => {
+    const { nextTime } = getNextAlarmTime(med);
+    const alarmKey = med.id;
+    
+    const timeToAlarm = nextTime - now;
+
+    if (timeToAlarm <= 60000 && timeToAlarm > -60000) {
+      if (lastTriggered[alarmKey] !== nextTime) {
+        startAlarmLoop(med, nextTime);
+        lastTriggered[alarmKey] = nextTime;
+        return;
+      }
     }
-    const intervalMs = (hours * 60 + minutes) * 60 * 1000;
-
-    const now = new Date();
-    while (start < now) start.setTime(start.getTime() + intervalMs);
-
-    const delay = start.getTime() - now.getTime();
-    if (delay <= 0) {
-      console.warn('Delay calculado não é positivo para:', m);
-      return;
-    }
-    timers.push(setTimeout(() => triggerAlarm(m), delay));
-
-    (m.remind || []).forEach(mins => {
-      const remindDelay = delay - mins * 60 * 1000;
-      if (remindDelay > 0) timers.push(setTimeout(() => triggerReminder(m, mins), remindDelay));
+    
+    med.remind.forEach(min => {
+      const reminderTime = nextTime - (min * 60000);
+      const reminderKey = `${med.id}-${min}`;
+      const timeToReminder = reminderTime - now;
+      
+      if (timeToReminder <= 60000 && timeToReminder > -60000) {
+        if (lastTriggered[reminderKey] !== nextTime) {
+          startReminderLoop(med, min, nextTime, reminderKey);
+          lastTriggered[reminderKey] = nextTime;
+          return;
+        }
+      }
     });
   });
 }
 
-function triggerReminder(med, mins) {
-  reminderOverlay.style.display = 'flex';
-  document.getElementById('reminderText').textContent = `Faltam ${mins} minutos para tomar ${med.name}`;
-  speak(`Lembrete: em ${mins} minutos será hora de tomar ${med.name}`);
-  if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
+function startAlarmLoop(med, nextTime) {
+  if (activeAlarmLoop) clearInterval(activeAlarmLoop);
+  currentActiveMed = med;
+
+  const repeatAlarm = () => {
+    const username = localStorage.getItem(STORAGE_KEY_USER) || 'Você';
+    const text = `${username}, hora de tomar ${med.qty} de ${med.name}.`;
+    
+    document.getElementById('overlayText').innerText = text;
+    document.getElementById('overlayImg').src = med.img || '';
+    document.getElementById('overlay').style.display = 'flex';
+    
+    sendNotification('🚨 ALARME DE MEDICAMENTO', text, { medId: med.id });
+    speak(text);
+    if ('vibrate' in navigator) {
+      navigator.vibrate([1000, 500, 1000]);
+    }
+  };
+  
+  repeatAlarm();
+  activeAlarmLoop = setInterval(repeatAlarm, 10000);
 }
 
-function triggerAlarm(med) {
-  overlay.style.display = 'flex';
-  overlayText.textContent = `Está na hora de tomar ${med.name}`;
-  overlayImg.src = med.photo || 'icons/icon-512.png';
-  speak(`Está na hora de tomar ${med.name}. Dose: ${med.quantity}`);
-  if ('vibrate' in navigator) navigator.vibrate([400, 200, 400, 200, 400]);
+function startReminderLoop(med, min, nextTime, reminderKey) {
+  if (activeReminderLoop) clearInterval(activeReminderLoop);
 
-  if (navigator.serviceWorker.controller) {
-    navigator.serviceWorker.controller.postMessage({
-      type: 'SHOW_NOTIFICATION',
-      title: 'Hora do remédio 💊',
-      body: `Está na hora de tomar ${med.name} (${med.quantity})`,
-      icon: med.photo || 'icons/icon-192.png'
+  const repeatReminder = () => {
+    const username = localStorage.getItem(STORAGE_KEY_USER) || 'Você';
+    const text = `${username}, faltam ${min} minutos para tomar ${med.qty} de ${med.name}.`;
+    
+    document.getElementById('reminderText').innerText = text;
+    document.getElementById('reminderImg').src = med.img || '';
+    document.getElementById('reminderOverlay').style.display = 'flex';
+    
+    sendNotification('⏰ Lembrete de Medicamento', text);
+    speak(text);
+    if ('vibrate' in navigator) {
+      navigator.vibrate([500, 200, 500]);
+    }
+    
+    if (nextTime < Date.now() + 60000) {
+      stopReminderLoop();
+    }
+  };
+  
+  repeatReminder();
+  activeReminderLoop = setInterval(repeatReminder, 10000);
+}
+
+function stopAlarmLoop() {
+  if (activeAlarmLoop) clearInterval(activeAlarmLoop);
+  activeAlarmLoop = null;
+  currentActiveMed = null;
+  document.getElementById('overlay').style.display = 'none';
+  if ('vibrate' in navigator) {
+    navigator.vibrate(0);
+  }
+  if ('speechSynthesis' in window) {
+    speechSynthesis.cancel();
+  }
+}
+
+function stopReminderLoop() {
+  if (activeReminderLoop) clearInterval(activeReminderLoop);
+  activeReminderLoop = null;
+  document.getElementById('reminderOverlay').style.display = 'none';
+  if ('vibrate' in navigator) {
+    navigator.vibrate(0);
+  }
+  if ('speechSynthesis' in window) {
+    speechSynthesis.cancel();
+  }
+}
+
+// ===== AÇÕES DO USUÁRIO =====
+document.getElementById('takenBtn').addEventListener('click', async () => {
+  if (currentActiveMed) {
+    const med = meds.find(m => m.id === currentActiveMed.id);
+    if (med) {
+      const now = Date.now();
+      med.history.push(now);
+      await saveMedIDB(med);
+      stopAlarmLoop();
+      stopReminderLoop();
+      delete lastTriggered[med.id];
+      renderList();
+      speak('Medicamento registrado como tomado.');
+      console.log(`✅ ${med.name} registrado como tomado às ${new Date(now).toLocaleString('pt-BR')}`);
+    }
+  }
+});
+
+document.getElementById('postpone30').addEventListener('click', () => handlePostpone(30));
+document.getElementById('postpone60').addEventListener('click', () => handlePostpone(60));
+
+async function handlePostpone(minutes) {
+  if (currentActiveMed) {
+    const med = currentActiveMed;
+    const postponeMs = minutes * 60 * 1000;
+    
+    const { nextTime } = getNextAlarmTime(med);
+    const newNextTime = nextTime + postponeMs;
+    
+    stopAlarmLoop();
+    stopReminderLoop();
+    
+    lastTriggered[med.id] = newNextTime - 1;
+    
+    speak(`Lembrete adiado por ${minutes} minutos.`);
+    console.log(`⏰ Lembrete de ${med.name} adiado por ${minutes} minutos.`);
+    
+    setTimeout(() => checkAlarms(), 1000);
+  }
+}
+
+document.getElementById('reminderOkBtn').addEventListener('click', () => {
+  stopReminderLoop();
+});
+
+function sendNotification(title, body, data) {
+  if (Notification.permission === 'granted') {
+    try {
+      new Notification(title, {
+        body: body,
+        icon: 'icons/icon-192.png',
+        badge: 'icons/icon-192.png',
+        vibrate: [200, 100, 200],
+        data: data || {}
+      });
+    } catch (e) {
+      console.error('Erro ao enviar notificação:', e);
+    }
+  } else if (Notification.permission === 'default') {
+    Notification.requestPermission().then(permission => {
+      if (permission === 'granted') {
+        sendNotification(title, body, data);
+      }
     });
   }
 }
 
-// === OVERLAY BOTÕES ===
-document.getElementById('takenBtn').onclick = () => {
-  overlay.style.display = 'none';
-  speak('Ótimo! Continue cuidando bem da sua saúde.');
-};
-document.getElementById('postpone30').onclick = () => postpone(30);
-document.getElementById('postpone60').onclick = () => postpone(60);
-function postpone(mins) {
-  overlay.style.display = 'none';
-  speak(`Alarme adiado por ${mins} minutos.`);
-}
-document.getElementById('reminderOkBtn').onclick = () => reminderOverlay.style.display = 'none';
+// Checa alarmes a cada 10 segundos
+setInterval(checkAlarms, 10000);
+
+// Executa a primeira checagem imediatamente
+checkAlarms();
