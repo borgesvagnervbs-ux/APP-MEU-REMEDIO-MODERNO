@@ -1,4 +1,4 @@
-// === CuidaBem - Lembrete de Medicamentos Humanizado (versão final corrigida) ===
+// === CuidaBem - Lembrete de Medicamentos (versão final com compressão de imagem) ===
 
 const views = document.querySelectorAll('.view');
 const overlay = document.getElementById('overlay');
@@ -151,7 +151,7 @@ document.getElementById('formRemindNext').onclick = () => {
 };
 document.getElementById('formRemindBack').onclick = () => showView('form-time');
 
-// === FOTO ===
+// === FOTO (com compressão) ===
 const photoInput = document.getElementById('photo');
 const imgPreview = document.getElementById('imgPreview');
 photoInput.onchange = e => {
@@ -159,11 +159,24 @@ photoInput.onchange = e => {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = evt => {
-    imgPreview.innerHTML = `<img src="${evt.target.result}">`;
-    currentMed.photo = evt.target.result;
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const maxSize = 600; // px
+      const scale = Math.min(maxSize / img.width, maxSize / img.height);
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const reducedDataUrl = canvas.toDataURL('image/jpeg', 0.7); // 70% qualidade
+      imgPreview.innerHTML = `<img src="${reducedDataUrl}">`;
+      currentMed.photo = reducedDataUrl;
+    };
+    img.src = evt.target.result;
   };
   reader.readAsDataURL(file);
 };
+
 document.getElementById('formPhotoNext').onclick = () => {
   showView('review');
   document.getElementById('reviewName').textContent = currentMed.name;
@@ -176,12 +189,11 @@ document.getElementById('formPhotoNext').onclick = () => {
 };
 document.getElementById('formPhotoBack').onclick = () => showView('form-remind');
 
-// === SALVAR E AGENDAR (corrigido) ===
+// === SALVAR E AGENDAR (corrigido e validado) ===
 document.getElementById('saveBtn').onclick = () => {
   try {
-    // pega valores visíveis no formulário, mas aceita fallback para currentMed
-    const startInput = document.getElementById('startTime') ? document.getElementById('startTime').value : '';
-    const intervalInput = document.getElementById('intervalTime') ? document.getElementById('intervalTime').value : '';
+    const startInput = document.getElementById('startTime').value;
+    const intervalInput = document.getElementById('intervalTime').value;
 
     const startVal = startInput || currentMed.start;
     const intervalVal = intervalInput || currentMed.interval;
@@ -191,7 +203,6 @@ document.getElementById('saveBtn').onclick = () => {
       return;
     }
 
-    // Normaliza start para ISO (se já for ISO, Date reconstrói corretamente)
     const parsedStart = new Date(startVal);
     if (isNaN(parsedStart.getTime())) {
       alert('Horário inicial inválido. Verifique o campo Início.');
@@ -200,7 +211,6 @@ document.getElementById('saveBtn').onclick = () => {
     }
     currentMed.start = parsedStart.toISOString();
 
-    // Valida intervalo no formato HH:MM
     if (typeof intervalVal !== 'string' || !/^[0-9]{2}:[0-9]{2}$/.test(intervalVal)) {
       alert('Intervalo inválido. Use o formato HH:MM.');
       console.error('Intervalo inválido ao salvar:', intervalVal);
@@ -215,7 +225,6 @@ document.getElementById('saveBtn').onclick = () => {
 
     renderList();
     scheduleAllMeds();
-
     showView('list');
     speak('Lembrete salvo com sucesso!');
   } catch (err) {
@@ -223,6 +232,8 @@ document.getElementById('saveBtn').onclick = () => {
     alert('Ocorreu um erro ao salvar o lembrete. Verifique os dados e tente novamente.');
   }
 };
+
+document.getElementById('reviewBack').onclick = () => showView('form-photo');
 
 // === LISTA ===
 function renderList() {
@@ -254,19 +265,16 @@ document.getElementById('testNow').onclick = () => showAlarm({ name: "Teste", qu
 
 // === AGENDAMENTO ===
 function scheduleAllMeds() {
-
-  // segurança: limpa timers e protege contra dados inválidos
   timers.forEach(t => clearTimeout(t));
   timers = [];
+
   meds.forEach((m) => {
-    // valida start
     const start = new Date(m.start);
     if (isNaN(start.getTime())) {
       console.warn('Ignorando lembrete com start inválido:', m);
       return;
     }
 
-    // valida intervalo
     if (!m.interval || typeof m.interval !== 'string' || m.interval.indexOf(':') === -1) {
       console.warn('Ignorando lembrete com intervalo inválido:', m);
       return;
@@ -281,7 +289,6 @@ function scheduleAllMeds() {
     const intervalMs = (hours * 60 + minutes) * 60 * 1000;
 
     const now = new Date();
-    // avança o start até que seja futuro
     while (start < now) start.setTime(start.getTime() + intervalMs);
 
     const delay = start.getTime() - now.getTime();
