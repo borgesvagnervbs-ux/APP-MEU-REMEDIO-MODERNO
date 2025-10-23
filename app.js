@@ -1,4 +1,4 @@
-// === CuidaBem - Lembrete de Medicamentos (versão final com compressão de imagem) ===
+// === CuidaBem - Lembrete de Medicamentos (corrigido: tratamento de quota + compressão progressiva) ===
 
 const views = document.querySelectorAll('.view');
 const overlay = document.getElementById('overlay');
@@ -49,6 +49,132 @@ function requestNotificationPermission() {
       console.log('Permissão de notificação:', permission);
     });
   }
+}
+
+// util: detecta erro de quota localStorage
+function isQuotaExceeded(e) {
+  if (!e) return false;
+  return e instanceof DOMException && (
+    e.name === 'QuotaExceededError' ||
+    e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+    e.code === 22 ||
+    e.code === 1014
+  );
+}
+
+// util: converte dataURL para imagem redimensionada (promise)
+function resizeDataUrl(dataUrl, maxSize = 600, quality = 0.7) {
+  return new Promise((resolve, reject) => {
+    try {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          const scale = Math.min(1, Math.min(maxSize / img.width, maxSize / img.height));
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const reduced = canvas.toDataURL('image/jpeg', quality);
+          resolve(reduced);
+        } catch (err) {
+          reject(err);
+        }
+      };
+      img.onerror = (err) => reject(err);
+      img.src = dataUrl;
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+// tenta salvar no localStorage com estratégias caso o espaço seja insuficiente
+async function safeSaveMeds(medsArray) {
+  // tentativa direta primeiro
+  try {
+    localStorage.setItem('meds', JSON.stringify(medsArray));
+    return { ok: true };
+  } catch (e) {
+    if (!isQuotaExceeded(e)) {
+      console.error('Erro desconhecido ao salvar:', e);
+      return { ok: false, error: e };
+    }
+    console.warn('QuotaExceeded: tentando estratégias de redução de tamanho...');
+  }
+
+  // Estratégia 1: se currentMed tem foto, tente recomprimir ainda mais essa foto
+  try {
+    // encontra índice do currentMed (último adicionado ou baseado em nome/dose/start)
+    const idx = medsArray.length - 1;
+    if (idx >= 0 && medsArray[idx] && medsArray[idx].photo) {
+      let photo = medsArray[idx].photo;
+      // tentativa progressiva: 600@0.7 -> 400@0.55 -> 300@0.45
+      const attempts = [
+        { size: 400, q: 0.55 },
+        { size: 300, q: 0.45 },
+      ];
+      for (const a of attempts) {
+        try {
+          const reduced = await resizeDataUrl(photo, a.size, a.q);
+          medsArray[idx].photo = reduced;
+          try {
+            localStorage.setItem('meds', JSON.stringify(medsArray));
+            return { ok: true, strategy: 'recompressed-current' };
+          } catch (err2) {
+            if (!isQuotaExceeded(err2)) throw err2;
+            // continua para próxima tentativa
+            photo = reduced;
+          }
+        } catch (errR) {
+          console.warn('Falha ao recomprimir foto:', errR);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Erro na estratégia de recompressão:', err);
+  }
+
+  // Estratégia 2: Remover fotos dos itens antigos (conservador) — preserva foto do atual, se possível
+  try {
+    // cria cópia profunda para manipular
+    const clone = JSON.parse(JSON.stringify(medsArray));
+    // primeiro, remove fotos de itens antigos (do início para o fim) mas mantém o último (current)
+    for (let i = 0; i < clone.length - 1; i++) {
+      if (clone[i].photo) {
+        delete clone[i].photo;
+        try {
+          localStorage.setItem('meds', JSON.stringify(clone));
+          return { ok: true, strategy: 'removed-old-photos' };
+        } catch (err) {
+          if (!isQuotaExceeded(err)) throw err;
+          // continua removendo mais fotos
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Erro ao remover fotos antigas:', err);
+  }
+
+  // Estratégia 3: Remover todas as fotos (inclusive current) — último recurso
+  try {
+    const clone2 = JSON.parse(JSON.stringify(medsArray));
+    for (let i = 0; i < clone2.length; i++) {
+      if (clone2[i].photo) delete clone2[i].photo;
+    }
+    try {
+      localStorage.setItem('meds', JSON.stringify(clone2));
+      return { ok: true, strategy: 'removed-all-photos' };
+    } catch (err) {
+      if (!isQuotaExceeded(err)) throw err;
+      console.warn('Ainda sem espaço após remover fotos.');
+    }
+  } catch (err) {
+    console.warn('Erro na última estratégia:', err);
+  }
+
+  // Tudo falhou
+  return { ok: false, error: new Error('QuotaExceeded after all strategies') };
 }
 
 // === INICIALIZAÇÃO ===
@@ -151,28 +277,26 @@ document.getElementById('formRemindNext').onclick = () => {
 };
 document.getElementById('formRemindBack').onclick = () => showView('form-time');
 
-// === FOTO (com compressão) ===
+// === FOTO (com compressão imediata e fallback) ===
 const photoInput = document.getElementById('photo');
 const imgPreview = document.getElementById('imgPreview');
-photoInput.onchange = e => {
+photoInput.onchange = async e => {
   const file = e.target.files[0];
   if (!file) return;
+  // lê a imagem como dataURL
   const reader = new FileReader();
-  reader.onload = evt => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      const maxSize = 600; // px
-      const scale = Math.min(maxSize / img.width, maxSize / img.height);
-      canvas.width = img.width * scale;
-      canvas.height = img.height * scale;
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      const reducedDataUrl = canvas.toDataURL('image/jpeg', 0.7); // 70% qualidade
-      imgPreview.innerHTML = `<img src="${reducedDataUrl}">`;
-      currentMed.photo = reducedDataUrl;
-    };
-    img.src = evt.target.result;
+  reader.onload = async (evt) => {
+    try {
+      // compressão inicial para 600px@0.7
+      const reduced = await resizeDataUrl(evt.target.result, 600, 0.7);
+      imgPreview.innerHTML = `<img src="${reduced}">`;
+      currentMed.photo = reduced;
+    } catch (err) {
+      console.warn('Falha na compressão inicial, usando data original:', err);
+      // fallback: usa data original (pior caso)
+      imgPreview.innerHTML = `<img src="${evt.target.result}">`;
+      currentMed.photo = evt.target.result;
+    }
   };
   reader.readAsDataURL(file);
 };
@@ -189,8 +313,8 @@ document.getElementById('formPhotoNext').onclick = () => {
 };
 document.getElementById('formPhotoBack').onclick = () => showView('form-remind');
 
-// === SALVAR E AGENDAR (corrigido e validado) ===
-document.getElementById('saveBtn').onclick = () => {
+// === SALVAR E AGENDAR (robusto) ===
+document.getElementById('saveBtn').onclick = async () => {
   try {
     const startInput = document.getElementById('startTime').value;
     const intervalInput = document.getElementById('intervalTime').value;
@@ -220,13 +344,31 @@ document.getElementById('saveBtn').onclick = () => {
 
     if (!Array.isArray(currentMed.remind)) currentMed.remind = [];
 
-    meds.push(currentMed);
-    localStorage.setItem('meds', JSON.stringify(meds));
+    // prepara array para salvar (faz uma cópia para não corromper currentMed se precisarmos manipular)
+    const toSave = JSON.parse(JSON.stringify(meds));
+    toSave.push(currentMed);
+
+    // tenta salvar com estratégias de fallback
+    const result = await safeSaveMeds(toSave);
+    if (!result.ok) {
+      console.error('Falha ao salvar após estratégias:', result.error);
+      alert('Não foi possível salvar. Espaço de armazenamento insuficiente no dispositivo. Considere remover lembretes antigos ou fotos.');
+      return;
+    }
+
+    // atualiza estado local com a versão que foi realmente gravada (busca do localStorage para garantir consistência)
+    try {
+      meds = JSON.parse(localStorage.getItem('meds') || '[]');
+    } catch (e) {
+      // se parsing falhar, fallback para toSave sem fotos (proteção)
+      meds = toSave.map(m => { const copy = Object.assign({}, m); delete copy.photo; return copy; });
+      localStorage.setItem('meds', JSON.stringify(meds));
+    }
 
     renderList();
     scheduleAllMeds();
     showView('list');
-    speak('Lembrete salvo com sucesso!');
+    speak('Lembrete salvo com sucesso! (se houver fotos grandes, elas podem ter sido reduzidas ou removidas para economizar espaço)');
   } catch (err) {
     console.error('Erro ao salvar lembrete:', err);
     alert('Ocorreu um erro ao salvar o lembrete. Verifique os dados e tente novamente.');
@@ -256,7 +398,14 @@ function renderList() {
 window.deleteMed = (i) => {
   if (confirm('Excluir lembrete?')) {
     meds.splice(i, 1);
-    localStorage.setItem('meds', JSON.stringify(meds));
+    try {
+      localStorage.setItem('meds', JSON.stringify(meds));
+    } catch (e) {
+      console.error('Erro ao atualizar localStorage ao deletar:', e);
+      // tenta remover fotos e tentar novamente
+      const clone = meds.map(m => { const c = Object.assign({}, m); delete c.photo; return c; });
+      try { localStorage.setItem('meds', JSON.stringify(clone)); } catch (err) { console.error(err); }
+    }
     renderList();
   }
 };
