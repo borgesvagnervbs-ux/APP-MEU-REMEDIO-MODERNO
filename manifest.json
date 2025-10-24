@@ -1,14 +1,14 @@
 {
-  "name": "CuidaBem - Lembretes",
-  "short_name": "CuidaBem",
-  "description": "Lembretes de medicamentos — empático, simples e local.",
+  "name": "Lembrete de Medicamentos",
+  "short_name": "MEU REMÉDIO",
+  "description": "App de lembretes de medicamentos com voz, vibração e notificações.",
   "start_url": "index.html",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#6fb8ff",
+  "theme_color": "#0d9488",
   "orientation": "portrait",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
   ]
 }
