@@ -26,12 +26,12 @@
   "screenshots": [
     {
       "src": "tela1.png",
-      "sizes": "100x222",
+      "sizes": "720x1600",
       "type": "image/png"
     },
     {
       "src": "tela2.png",
-      "sizes": "100x222",
+      "sizes": "720x1600",
       "type": "image/png"
     }
   ]
