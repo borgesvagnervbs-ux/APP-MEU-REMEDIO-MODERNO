@@ -1,8 +1,10 @@
 {
+  "id": "/",
   "name": "MEU REMÉDIO - Lembrete de Medicamentos",
   "short_name": "MEU REMÉDIO",
   "description": "Aplicativo humanizado para lembrar você de tomar seus medicamentos, com voz, notificações e cuidado empático.",
   "start_url": "/index.html",
+  "categories": ["health", "medical", "productivity"],
   "display": "standalone",
   "background_color": "#f4f9ff",
   "theme_color": "#6fb8ff",
